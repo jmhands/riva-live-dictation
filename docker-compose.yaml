@@ -1,0 +1,21 @@
+services:
+  parakeet:
+    image: nvcr.io/nim/nvidia/parakeet-0-6b-ctc-en-us:latest
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+              device_ids: ["0"]
+    shm_size: 8gb
+    environment:
+      NGC_API_KEY: ${NGC_API_KEY}
+      NIM_HTTP_API_PORT: 9000
+      NIM_GRPC_API_PORT: 50051
+      # Try without custom tags first
+      # NIM_TAGS_SELECTOR: "bs1"
+    ports:
+      - "9000:9000"
+      - "50051:50051"
+    restart: "no"

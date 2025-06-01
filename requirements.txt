@@ -1,0 +1,5 @@
+nvidia-riva-client
+pyaudio
+pynput
+pyautogui
+numpy
