@@ -2,6 +2,44 @@
 
 A real-time speech-to-text dictation app that types directly to your cursor using NVIDIA Riva NIM (locally hosted).
 
+## ✨ NEW: Modern Version Available!
+
+We now have a **modernized version** with significant UX improvements:
+
+### 🎨 Modern UI Features (Phase 1)
+- **System tray integration** - Minimal distraction, runs in background
+- **Floating status widget** - Draggable, translucent, modern design
+- **Visual status indicators** - Color-coded status dots and smart notifications
+- **Auto-recovery** - Automatic reconnection to Riva when connection drops
+- **Persistent configuration** - Settings saved between sessions
+- **Improved error handling** - Better error messages and recovery
+
+### 🚀 Quick Start (Modern Version)
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Test dependencies (recommended)
+python test_modern_app.py
+
+# Run modern version
+python modern_dictation.py
+```
+
+**Usage:**
+- App starts with system tray icon (green microphone)
+- Floating widget appears in top-right corner (can be dragged)
+- **F9**: Start/Stop recording
+- Right-click tray icon for full menu
+- Auto-reconnects to Riva if connection drops
+
+---
+
+## 📱 Original Version
+
+The original version (`realtime_dictation.py`) is still available with the traditional window interface.
+
 ## Features
 
 🎤 **Real-time transcription** - See words appear as you speak
@@ -41,11 +79,17 @@ docker run -it --rm \
 ### 2. Install Python dependencies
 
 ```bash
-pip install nvidia-riva-client pyaudio pynput pyautogui numpy
+pip install -r requirements.txt
 ```
 
-### 3. Run the app
+### 3. Choose your version
 
+**Modern Version (Recommended):**
+```bash
+python modern_dictation.py
+```
+
+**Original Version:**
 ```bash
 python realtime_dictation.py
 ```
@@ -53,7 +97,7 @@ python realtime_dictation.py
 ## Usage
 
 1. **Start Riva NIM** container (see installation above)
-2. **Run the dictation app**
+2. **Run the dictation app** (modern or original version)
 3. **Check "Auto-type to cursor"** (enabled by default)
 4. **Click in any text field** (Notepad, browser, etc.)
 5. **Press F9** to start real-time dictation
@@ -62,7 +106,7 @@ python realtime_dictation.py
 
 ### Hotkeys
 - **F9**: Start/Stop dictation
-- **ESC**: Exit app
+- **ESC**: Exit app (modern version: only when widget visible)
 
 ## Troubleshooting
 
@@ -77,12 +121,24 @@ curl http://localhost:9000/v1/health/ready
 - Use the "Test Microphone" button in the app
 - Ensure your microphone is set as default input device
 
+### Dependency Issues
+```bash
+# Test all dependencies (modern version)
+python test_modern_app.py
+```
+
+### Modern App Specific
+- **Can't see system tray icon?** Check your system tray settings
+- **Widget won't show?** Right-click tray icon → "Show Widget"
+- **Auto-reconnection not working?** Check Riva container status
+
 ## Technical Details
 
 - Uses NVIDIA Riva's streaming ASR API for real-time transcription
 - Requires `max_alternatives=3` in RecognitionConfig for proper results
 - Streams audio in 16kHz mono PCM format
 - Real-time typing uses interim and final results from Riva
+- Modern version includes automatic error recovery and persistent config
 
 ## Resources
 
