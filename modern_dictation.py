@@ -22,6 +22,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import numpy as np
 import pyautogui
+from infi.systray import SysTrayIcon
 
 # Import system tray and keyboard handling
 try:
@@ -595,166 +596,101 @@ class StatusWidget:
         y = (settings.winfo_screenheight() // 2) - (height // 2)
         settings.geometry(f'{width}x{height}+{x}+{y}')
 
-class SystemTrayApp:
-    """System tray integration with minimal UI"""
-
-    def __init__(self, app):
-        self.app = app
-        self.icon = None
-        self.create_tray_icon()
-
-    def create_tray_icon(self):
-        """Create system tray icon"""
-        # Create icon images
-        self.recording_icon = self.create_icon(True)
-        self.idle_icon = self.create_icon(False)
-
-        # Create menu
-        menu = Menu(
-            MenuItem('Start Recording (F9)', self.app.start_recording),
-            MenuItem('Stop Recording (F9)', self.app.stop_recording),
-            Menu.SEPARATOR,
-            MenuItem('Settings', self.show_settings),
-            Menu.SEPARATOR,
-            MenuItem('Exit', self.app.quit_app)
-        )
-
-        # Create icon
-        self.icon = pystray.Icon(
-            "riva_dictation",
-            self.idle_icon,
-            "Riva Dictation",
-            menu
-        )
-
-    def create_icon(self, recording: bool):
-        """Create icon image"""
-        # Create a new image with a transparent background
-        image = Image.new('RGB', (64, 64), color=(0, 0, 0, 0))
-        dc = ImageDraw.Draw(image)
-
-        # Draw microphone icon
-        color = (255, 0, 0) if recording else (0, 255, 0)
-        dc.rectangle([20, 10, 44, 40], fill=color)  # Mic body
-        dc.rectangle([28, 40, 36, 54], fill=color)  # Mic stand
-        dc.ellipse([24, 54, 40, 60], fill=color)    # Mic base
-
-        return image
-
-    def update_icon(self, recording: bool):
-        """Update icon based on recording state"""
-        if self.icon:
-            self.icon.icon = self.recording_icon if recording else self.idle_icon
-            self.icon.title = "Recording..." if recording else "Riva Dictation"
-
-    def show_settings(self, icon=None, item=None):
-        # Schedule settings dialog to open in the main thread
-        self.app.root.after(0, self._show_settings_dialog)
-
-    def _show_settings_dialog(self):
-        # (existing settings dialog code goes here, unchanged)
-        settings = tk.Toplevel(self.app.root)
-        settings.title("Riva Dictation Settings")
-        settings.geometry("400x300")
-        settings.resizable(False, False)
-        settings.attributes('-topmost', True)
-        main_frame = tk.Frame(settings, padx=20, pady=20)
-        main_frame.pack(fill=tk.BOTH, expand=True)
-        endpoint_frame = tk.LabelFrame(main_frame, text="Endpoint Configuration", padx=10, pady=10)
-        endpoint_frame.pack(fill=tk.X, pady=(0, 10))
-        endpoint_var = tk.StringVar(value=self.app.config.get("endpoint_type", "local"))
-        tk.Radiobutton(endpoint_frame, text="Local Riva/Parakeet", variable=endpoint_var, value="local").pack(anchor=tk.W)
-        tk.Radiobutton(endpoint_frame, text="NVIDIA NIM Cloud", variable=endpoint_var, value="nim_cloud").pack(anchor=tk.W)
-        tk.Radiobutton(endpoint_frame, text="Custom Endpoint", variable=endpoint_var, value="custom").pack(anchor=tk.W)
-        nim_frame = tk.Frame(endpoint_frame)
-        nim_frame.pack(fill=tk.X, pady=(5, 0))
-        tk.Label(nim_frame, text="NVIDIA NIM API Key:").pack(side=tk.LEFT)
-        nim_key_var = tk.StringVar(value=self.app.config.get("nim_api_key", ""))
-        nim_entry = tk.Entry(nim_frame, textvariable=nim_key_var, show="*", width=30)
-        nim_entry.pack(side=tk.LEFT, padx=(5, 0))
-        custom_frame = tk.Frame(endpoint_frame)
-        custom_frame.pack(fill=tk.X, pady=(5, 0))
-        tk.Label(custom_frame, text="Custom Endpoint:").pack(side=tk.LEFT)
-        custom_url_var = tk.StringVar(value=self.app.config.get("custom_endpoint", ""))
-        custom_entry = tk.Entry(custom_frame, textvariable=custom_url_var, width=30)
-        custom_entry.pack(side=tk.LEFT, padx=(5, 0))
-        ssl_var = tk.BooleanVar(value=self.app.config.get("use_ssl", True))
-        tk.Checkbutton(endpoint_frame, text="Use SSL/TLS", variable=ssl_var).pack(anchor=tk.W, pady=(5, 0))
-        button_frame = tk.Frame(main_frame)
-        button_frame.pack(fill=tk.X, pady=(10, 0))
-        def save_settings():
-            self.app.config.set("endpoint_type", endpoint_var.get())
-            self.app.config.set("nim_api_key", nim_key_var.get())
-            self.app.config.set("custom_endpoint", custom_url_var.get())
-            self.app.config.set("use_ssl", ssl_var.get())
-            self.app.config.save_config()
-            self.app.setup_riva()
-            settings.destroy()
-            messagebox.showinfo("Settings Saved", "Settings have been saved.\nRestart recording for changes to take effect.")
-        def test_connection():
-            messagebox.showinfo("Connection Test", "Connection test feature coming soon!")
-        tk.Button(button_frame, text="Test Connection", command=test_connection).pack(side=tk.LEFT)
-        tk.Button(button_frame, text="Save", command=save_settings).pack(side=tk.RIGHT)
-        settings.update_idletasks()
-        width = settings.winfo_width()
-        height = settings.winfo_height()
-        x = (settings.winfo_screenwidth() // 2) - (width // 2)
-        y = (settings.winfo_screenheight() // 2) - (height // 2)
-        settings.geometry(f'{width}x{height}+{x}+{y}')
-
 class ModernDictationApp:
     """Modern Riva Dictation App with ULTRA-LOW LATENCY optimizations"""
 
     def __init__(self):
         # Configuration
         self.config = Config()
-
-        # Audio settings - OPTIMIZED FOR MINIMUM LATENCY
+        # Audio settings
         self.rate = self.config.get("sample_rate", 16000)
         self.chunk = self.config.get("chunk_size", 256)
         self.format = pyaudio.paInt16
         self.channels = 1
-
-        # Pre-allocate audio queue with smaller max size for faster operations
         self.audio_queue = queue.Queue(maxsize=self.config.get("queue_size", 5))
-
-        # Audio components
         self.audio = None
         self.stream = None
         self.input_device_index = None
-
-        # Recording state
         self.recording = False
         self.current_text = ""
         self.final_text = ""
         self.last_typed_length = 0
-
-        # Riva ASR
         self.riva_asr = None
         self.connection_thread = None
-
-        # Initialize components
         self.setup_audio()
         self.setup_riva()
-
-        # Tkinter root (hidden)
         self.root = tk.Tk()
         self.root.withdraw()
-
-        # UI components
-        self.tray = SystemTrayApp(self)
-
-        # Setup hotkeys
         self.setup_hotkeys()
-
-        # Error recovery
         self.last_connection_check = 0
+        # Tray icon
+        self.systray = None
+        self.create_systray()
+
+    def create_systray(self):
+        import os
+        icon_path = "mic.ico" if os.path.exists("mic.ico") else None
+        menu_options = (
+            ("Start Recording (F9)", None, self.start_recording),
+            ("Stop Recording (F9)", None, self.stop_recording),
+            ("Select Microphone", None, self.select_microphone),
+            ("Settings", None, self.show_settings),
+        )
+        self.systray = SysTrayIcon(icon_path, "Riva Dictation", menu_options, on_quit=self.quit_app)
+
+    def select_microphone(self, systray=None):
+        self.root.after(0, self._show_microphone_dialog)
+
+    def _show_microphone_dialog(self):
+        import pyaudio
+        pa = pyaudio.PyAudio()
+        devices = []
+        for i in range(pa.get_device_count()):
+            info = pa.get_device_info_by_index(i)
+            if info.get('maxInputChannels', 0) > 0:
+                devices.append((i, info['name']))
+        pa.terminate()
+        if not devices:
+            messagebox.showerror("No Microphones", "No input devices found.")
+            return
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Select Microphone")
+        dialog.geometry("400x300")
+        dialog.resizable(False, False)
+        tk.Label(dialog, text="Select your microphone:", font=("Arial", 12)).pack(pady=10)
+        listbox = tk.Listbox(dialog, width=50, height=10)
+        for idx, name in devices:
+            listbox.insert(tk.END, f"{idx}: {name}")
+        listbox.pack(pady=10)
+        def save_selection():
+            sel = listbox.curselection()
+            if not sel:
+                messagebox.showwarning("No Selection", "Please select a microphone.")
+                return
+            device_idx = devices[sel[0]][0]
+            device_name = devices[sel[0]][1]
+            self.config.set("input_device_index", device_idx)
+            self.input_device_index = device_idx
+            dialog.destroy()
+            print(f"🎤 Microphone selected: {device_idx}: {device_name}")
+            messagebox.showinfo("Microphone Selected", f"Microphone set to: {device_name}")
+        tk.Button(dialog, text="Select", command=save_selection).pack(pady=10)
+        dialog.update_idletasks()
+        width = dialog.winfo_width()
+        height = dialog.winfo_height()
+        x = (dialog.winfo_screenwidth() // 2) - (width // 2)
+        y = (dialog.winfo_screenheight() // 2) - (height // 2)
+        dialog.geometry(f'{width}x{height}+{x}+{y}')
 
     def setup_audio(self):
-        """Setup audio with better error handling"""
         try:
             self.audio = pyaudio.PyAudio()
-            default_device = self.audio.get_default_input_device_info()
+            # Use selected device if set
+            device_idx = self.config.get("input_device_index", None)
+            if device_idx is not None:
+                default_device = self.audio.get_device_info_by_index(device_idx)
+            else:
+                default_device = self.audio.get_default_input_device_info()
             self.input_device_index = default_device['index']
             print(f"🎤 Audio device: {default_device['name']}")
         except Exception as e:
@@ -833,21 +769,14 @@ class ModernDictationApp:
             self.start_connection_retry()
 
     def safe_update_status(self, status: str, message: str = ""):
-        """Thread-safe status update - OPTIMIZED for minimal overhead"""
         # OPTIMIZATION: Skip GUI updates during recording to reduce latency
         if self.recording and status not in ["error", "ready"]:
             return
-
-        # Update tray icon based on status
-        if hasattr(self, 'tray') and self.tray.icon:
-            self.tray.update_icon(self.recording)
+        # No dynamic tray icon update for infi.systray
 
     def safe_update_icon(self, recording: bool = False):
-        """Thread-safe icon update - OPTIMIZED"""
-        # OPTIMIZATION: Only update icon on state changes, not continuously
-        if hasattr(self, 'tray') and self.tray.icon:
-            # For tray icon, we can update directly as pystray handles threading
-            self.tray.update_icon(recording)
+        # No dynamic tray icon update for infi.systray
+        pass
 
     def setup_hotkeys(self):
         """Setup hotkey handling"""
@@ -887,7 +816,6 @@ class ModernDictationApp:
 
             # Update UI (thread-safe)
             self.safe_update_status("recording")
-            self.safe_update_icon(recording=True)
 
             # Start audio capture
             self.audio_thread = threading.Thread(target=self._capture_audio, daemon=True)
@@ -916,7 +844,6 @@ class ModernDictationApp:
 
         # Update UI
         self.safe_update_status("ready")
-        self.safe_update_icon(recording=False)
 
         # Stop audio stream
         if self.stream:
@@ -1052,75 +979,86 @@ class ModernDictationApp:
         except Exception as e:
             print(f"⚠️ Auto-type error: {e}")
 
-    def quit_app(self):
-        """Clean shutdown"""
+    def quit_app(self, systray=None):
         self.recording = False
-
         if self.stream:
             self.stream.stop_stream()
             self.stream.close()
-
         if self.audio:
             self.audio.terminate()
-
         if hasattr(self, 'listener'):
             self.listener.stop()
+        if hasattr(self, 'root') and self.root:
+            self.root.after(0, self._really_quit)
 
-        if hasattr(self, 'tray') and self.tray.icon:
-            self.tray.icon.stop()
-
-        sys.exit(0)
+    def _really_quit(self):
+        self.root.quit()
+        self.root.destroy()
 
     def run(self):
-        """Start the application"""
-        try:
-            print("🚀 Modern Riva Dictation starting...")
-            print("✅ App ready! Press F9 to start recording")
-            print("💡 Check system tray for more options")
-            # Start tray icon in a background thread
-            tray_thread = threading.Thread(target=self.tray.icon.run, daemon=True)
-            tray_thread.start()
-            # Run Tkinter mainloop in main thread
-            self.root.mainloop()
-        except KeyboardInterrupt:
-            self.quit_app()
+        print("🚀 Modern Riva Dictation (infi.systray) starting...")
+        print("✅ App ready! Press F9 to start recording")
+        print("💡 Check system tray for more options")
+        # Start tray icon in a background thread
+        tray_thread = threading.Thread(target=self.systray.start, daemon=True)
+        tray_thread.start()
+        self.root.mainloop()
 
-    def set_latency_profile(self, profile: str):
-        """Set latency optimization profile"""
-        profiles = {
-            "ultra_low": {
-                "chunk_size": 256,      # Smallest chunks for minimum latency
-                "queue_size": 5,        # Minimal queue to prevent buildup
-                "type_interval": 0.005, # Ultra-fast typing
-                "gui_fps_recording": 10, # Minimal GUI updates during recording
-                "gui_fps_idle": 30,     # Reduced idle updates
-            },
-            "balanced": {
-                "chunk_size": 512,      # Balanced chunk size
-                "queue_size": 10,       # Moderate queue size
-                "type_interval": 0.01,  # Fast typing
-                "gui_fps_recording": 20, # Moderate GUI updates
-                "gui_fps_idle": 60,     # Full idle updates
-            },
-            "quality": {
-                "chunk_size": 1024,     # Larger chunks for better audio quality
-                "queue_size": 20,       # Larger buffer for stability
-                "type_interval": 0.02,  # Slightly slower typing for reliability
-                "gui_fps_recording": 30, # More GUI updates
-                "gui_fps_idle": 60,     # Full idle updates
-            }
-        }
+    def show_settings(self, systray=None):
+        self.root.after(0, self._show_settings_dialog)
 
-        if profile in profiles:
-            print(f"🚀 Setting latency profile: {profile}")
-            for key, value in profiles[profile].items():
-                self.config.set(key, value)
-            self.config.set("latency_profile", profile)
-            print(f"✅ Profile '{profile}' applied. Restart recording for changes to take effect.")
-        else:
-            print(f"❌ Unknown profile: {profile}. Available: {list(profiles.keys())}")
+    def _show_settings_dialog(self):
+        settings = tk.Toplevel(self.root)
+        settings.title("Riva Dictation Settings")
+        settings.geometry("400x300")
+        settings.resizable(False, False)
+        settings.attributes('-topmost', True)
+        main_frame = tk.Frame(settings, padx=20, pady=20)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        endpoint_frame = tk.LabelFrame(main_frame, text="Endpoint Configuration", padx=10, pady=10)
+        endpoint_frame.pack(fill=tk.X, pady=(0, 10))
+        endpoint_var = tk.StringVar(value=self.config.get("endpoint_type", "local"))
+        tk.Radiobutton(endpoint_frame, text="Local Riva/Parakeet", variable=endpoint_var, value="local").pack(anchor=tk.W)
+        tk.Radiobutton(endpoint_frame, text="NVIDIA NIM Cloud", variable=endpoint_var, value="nim_cloud").pack(anchor=tk.W)
+        tk.Radiobutton(endpoint_frame, text="Custom Endpoint", variable=endpoint_var, value="custom").pack(anchor=tk.W)
+        nim_frame = tk.Frame(endpoint_frame)
+        nim_frame.pack(fill=tk.X, pady=(5, 0))
+        tk.Label(nim_frame, text="NVIDIA NIM API Key:").pack(side=tk.LEFT)
+        nim_key_var = tk.StringVar(value=self.config.get("nim_api_key", ""))
+        nim_entry = tk.Entry(nim_frame, textvariable=nim_key_var, show="*", width=30)
+        nim_entry.pack(side=tk.LEFT, padx=(5, 0))
+        custom_frame = tk.Frame(endpoint_frame)
+        custom_frame.pack(fill=tk.X, pady=(5, 0))
+        tk.Label(custom_frame, text="Custom Endpoint:").pack(side=tk.LEFT)
+        custom_url_var = tk.StringVar(value=self.config.get("custom_endpoint", ""))
+        custom_entry = tk.Entry(custom_frame, textvariable=custom_url_var, width=30)
+        custom_entry.pack(side=tk.LEFT, padx=(5, 0))
+        ssl_var = tk.BooleanVar(value=self.config.get("use_ssl", True))
+        tk.Checkbutton(endpoint_frame, text="Use SSL/TLS", variable=ssl_var).pack(anchor=tk.W, pady=(5, 0))
+        button_frame = tk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+        def save_settings():
+            self.config.set("endpoint_type", endpoint_var.get())
+            self.config.set("nim_api_key", nim_key_var.get())
+            self.config.set("custom_endpoint", custom_url_var.get())
+            self.config.set("use_ssl", ssl_var.get())
+            self.config.save_config()
+            self.setup_riva()
+            settings.destroy()
+            messagebox.showinfo("Settings Saved", "Settings have been saved.\nRestart recording for changes to take effect.")
+        def test_connection():
+            messagebox.showinfo("Connection Test", "Connection test feature coming soon!")
+        tk.Button(button_frame, text="Test Connection", command=test_connection).pack(side=tk.LEFT)
+        tk.Button(button_frame, text="Save", command=save_settings).pack(side=tk.RIGHT)
+        settings.update_idletasks()
+        width = settings.winfo_width()
+        height = settings.winfo_height()
+        x = (settings.winfo_screenwidth() // 2) - (width // 2)
+        y = (settings.winfo_screenheight() // 2) - (height // 2)
+        settings.geometry(f'{width}x{height}+{x}+{y}')
 
 if __name__ == "__main__":
+    import signal
     parser = argparse.ArgumentParser(
         description="Modern Riva Dictation with Ultra-Low Latency & Cloud Support",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1168,6 +1106,10 @@ Phase 2 Features:
     args = parser.parse_args()
 
     app = ModernDictationApp()
+    def signal_handler(sig, frame):
+        print("Ctrl+C pressed, exiting...")
+        app._really_quit()
+    signal.signal(signal.SIGINT, signal_handler)
 
     if args.show_config:
         print("📋 Current Configuration:")
