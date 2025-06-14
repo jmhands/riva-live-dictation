@@ -1,69 +1,79 @@
-# Real-time Voice Dictation with NVIDIA Riva
+# NVIDIA Riva Live Dictation
 
-A real-time speech-to-text dictation app that types directly to your cursor using NVIDIA Riva NIM (locally hosted).
+🎤 **Real-time voice dictation powered by NVIDIA Riva** - Professional-grade speech-to-text that types directly to your cursor with enterprise-level features and cross-platform support.
 
-## ✨ NEW: Modern Version Available!
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![NVIDIA Riva](https://img.shields.io/badge/NVIDIA-Riva-green.svg)](https://developer.nvidia.com/riva)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-We now have a **modernized version** with significant UX improvements:
+## ✨ Key Features
 
-### 🎨 Modern UI Features (Phase 1)
-- **System tray integration** - Minimal distraction, runs in background
-- **Floating status widget** - Draggable, translucent, modern design
-- **Visual status indicators** - Color-coded status dots and smart notifications
-- **Auto-recovery** - Automatic reconnection to Riva when connection drops
-- **Persistent configuration** - Settings saved between sessions
-- **Improved error handling** - Better error messages and recovery
+🎯 **Real-time Streaming Recognition** - See words appear as you speak with ultra-low latency
+⚡ **Auto-typing** - Text appears directly at your cursor position in any application
+🌐 **Remote & Local Endpoints** - Connect to local Riva servers or remote cloud deployments
+🔧 **Port Remapping** - Configure custom ports for ASR and health check services
+🖥️ **Cross-Platform** - Works on Windows, Linux, and macOS
+📱 **Dual Interface** - Full GUI with system tray OR headless CLI mode
+🔒 **Enterprise Ready** - SSL/TLS support, advanced ASR settings, health monitoring
+🎚️ **Professional ASR** - FLAC encoding, speech contexts, endpointing, quality controls
 
-### 🚀 Quick Start (Modern Version)
+## 🚀 Quick Start
 
+### GUI Mode (Default)
 ```bash
-# Install dependencies
+# Install and run with system tray interface
 pip install -r requirements.txt
-
-# Test dependencies (recommended)
-python test_modern_app.py
-
-# Run modern version
-python modern_dictation.py
+python -m riva_dictation
 ```
 
-**Usage:**
-- App starts with system tray icon (green microphone)
-- Floating widget appears in top-right corner (can be dragged)
-- **F9**: Start/Stop recording
-- Right-click tray icon for full menu
-- Auto-reconnects to Riva if connection drops
+### CLI Mode (Headless)
+```bash
+# Run without GUI - perfect for servers and remote sessions
+python -m riva_dictation --no-gui
+```
+
+### Remote Endpoint
+```bash
+# Connect to remote Riva server with custom ports
+python -m riva_dictation --no-gui \
+  --endpoint my-riva-server.com \
+  --asr-port 50052 \
+  --health-port 8080 \
+  --ssl
+```
+
+**Usage:** Press **F9** to start/stop recording in any mode!
 
 ---
 
-## 📱 Original Version
+## 📋 Table of Contents
 
-The original version (`realtime_dictation.py`) is still available with the traditional window interface.
+- [Installation](#installation)
+- [Usage Modes](#usage-modes)
+- [Endpoint Configuration](#endpoint-configuration)
+- [Advanced Features](#advanced-features)
+- [CLI Reference](#cli-reference)
+- [Cross-Platform Support](#cross-platform-support)
+- [Troubleshooting](#troubleshooting)
+- [API Documentation](#api-documentation)
 
-## Features
+## 🛠️ Installation
 
-🎤 **Real-time transcription** - See words appear as you speak
-⚡ **Auto-typing** - Text appears directly at your cursor position
-🔒 **100% Local** - No cloud services, complete privacy
-🎯 **System-wide** - Works in any application
-⌨️ **Hotkey control** - F9 to start/stop dictation
+### Prerequisites
+- **Python 3.8+**
+- **NVIDIA Riva server** (local or remote)
+- **Microphone access**
 
-## Demo
-
-![Demo GIF placeholder - add your own demo]
-
-## Requirements
-
-- NVIDIA Riva NIM container running locally
-- Python 3.8+
-- Microphone
-
-## Installation
-
-### 1. Set up NVIDIA Riva NIM
-
+### 1. Clone and Install
 ```bash
-# Pull and run the Riva container
+git clone https://github.com/your-repo/riva-live-dictation.git
+cd riva-live-dictation
+pip install -r requirements.txt
+```
+
+### 2. Set up NVIDIA Riva (Local)
+```bash
+# Pull and run Riva NIM container
 docker run -it --rm \
    --runtime=nvidia \
    --gpus '"device=0"' \
@@ -76,82 +86,287 @@ docker run -it --rm \
    nvcr.io/nim/nvidia/parakeet-0-6b-ctc-en-us:latest
 ```
 
-### 2. Install Python dependencies
-
+### 3. Test Installation
 ```bash
+# List available microphones
+python -m riva_dictation --list-mics
+
+# Test local connection
+python -m riva_dictation --no-gui
+```
+
+## 🎮 Usage Modes
+
+### GUI Mode with System Tray
+```bash
+python -m riva_dictation
+```
+- **System tray integration** - Minimal distraction, runs in background
+- **Floating status widget** - Draggable, translucent interface
+- **Settings dialog** - Full configuration through GUI
+- **Microphone selection** - Visual device picker
+
+### CLI Mode (Headless)
+```bash
+python -m riva_dictation --no-gui
+```
+- **No GUI dependencies** - Perfect for servers and containers
+- **Console status updates** - All feedback through terminal
+- **SSH-friendly** - Works over remote connections
+- **Automation ready** - Scriptable and configurable
+
+## 🌐 Endpoint Configuration
+
+### Local Endpoint (Default)
+```bash
+# Uses localhost:50051 automatically
+python -m riva_dictation --no-gui
+```
+
+### Remote Endpoint with Port Remapping
+```bash
+# Custom ASR and health check ports
+python -m riva_dictation --no-gui \
+  --endpoint riva-cluster.company.com \
+  --asr-port 50052 \
+  --health-port 8080
+```
+
+### SSL/TLS Secure Connection
+```bash
+# Encrypted connection to cloud Riva service
+python -m riva_dictation --no-gui \
+  --endpoint secure-riva.example.com \
+  --ssl \
+  --asr-port 443
+```
+
+### Configuration Persistence
+Settings are automatically saved to `~/.riva_dictation_config.json`:
+```json
+{
+  "endpoint_type": "custom",
+  "custom_endpoint": "my-server.com",
+  "custom_asr_port": 50052,
+  "custom_health_port": 8080,
+  "use_separate_health_port": true,
+  "use_ssl": true
+}
+```
+
+## 🎚️ Advanced Features
+
+### Professional ASR Quality Settings
+- **FLAC Audio Encoding** - 50% bandwidth reduction vs LINEAR_PCM
+- **Max Alternatives** - Up to 5 recognition hypotheses
+- **Profanity Filter** - Content filtering options
+- **Verbatim Transcripts** - Raw vs normalized text output
+- **Model Selection** - Choose specific ASR models
+- **Speech Contexts** - Boost recognition of specific terms
+- **Endpointing Configuration** - Voice activity detection tuning
+
+### Audio Configuration
+```bash
+# List and select specific microphone
+python -m riva_dictation --list-mics
+python -m riva_dictation --no-gui --mic-device 1
+```
+
+### Health Monitoring
+- **gRPC Health Checks** - Service availability monitoring
+- **HTTP Fallback** - Alternative health check methods
+- **Connection Recovery** - Automatic reconnection on failures
+- **Status Reporting** - Real-time connection status
+
+## 📖 CLI Reference
+
+### Basic Commands
+```bash
+# Show help
+python -m riva_dictation --help
+
+# List microphones
+python -m riva_dictation --list-mics
+
+# GUI mode (default)
+python -m riva_dictation
+
+# CLI mode
+python -m riva_dictation --no-gui
+```
+
+### Endpoint Options
+```bash
+--endpoint HOSTNAME        # Remote server hostname/IP
+--asr-port PORT           # ASR service port (default: 50051)
+--health-port PORT        # Health check port (optional)
+--ssl                     # Enable SSL/TLS encryption
+```
+
+### Audio Options
+```bash
+--mic-device INDEX        # Microphone device index
+--list-mics              # Show available microphones
+```
+
+### Complete Example
+```bash
+python -m riva_dictation --no-gui \
+  --endpoint my-riva-cluster.com \
+  --asr-port 50052 \
+  --health-port 8080 \
+  --ssl \
+  --mic-device 1
+```
+
+## 🌍 Cross-Platform Support
+
+### Windows ✅
+- **Full GUI support** - System tray, floating widgets
+- **Audio device management** - Complete microphone control
+- **Hotkey integration** - Global F9 hotkey support
+
+### Linux ✅
+- **CLI mode recommended** - Perfect for headless servers
+- **GUI mode available** - With proper dependencies
+- **Container friendly** - Docker and Kubernetes ready
+
+### macOS ✅
+- **CLI mode fully supported** - No system tray dependencies
+- **GUI mode compatible** - With permission grants
+- **SSH session ready** - Remote development support
+
+### Docker/Container Deployment
+```dockerfile
+FROM python:3.9-slim
+COPY . /app
+WORKDIR /app
+RUN pip install -r requirements.txt
+CMD ["python", "-m", "riva_dictation", "--no-gui", "--endpoint", "riva-server"]
+```
+
+## 🔧 Troubleshooting
+
+### Connection Issues
+```bash
+# Test Riva server connectivity
+curl http://your-server:9000/v1/health/ready
+
+# Debug connection with verbose output
+python -m riva_dictation --no-gui --endpoint your-server
+```
+
+### Audio Issues
+```bash
+# List available microphones
+python -m riva_dictation --list-mics
+
+# Test specific microphone
+python -m riva_dictation --no-gui --mic-device 1
+```
+
+### Port Configuration
+```bash
+# Test different port combinations
+python -m riva_dictation --no-gui \
+  --endpoint your-server \
+  --asr-port 50051    # Try standard port first
+```
+
+### Common Solutions
+- **Health check 404 errors**: Normal for some Riva deployments, doesn't affect ASR
+- **SSL certificate issues**: Use `--ssl` flag for HTTPS endpoints
+- **Microphone permissions**: Grant audio access in system settings
+- **Port conflicts**: Check if ports are available and not blocked by firewall
+
+## 📚 API Documentation
+
+### Supported Riva Features
+Based on [NVIDIA NIM Riva ASR API](https://docs.nvidia.com/nim/riva/asr/latest/index.html):
+
+- **Streaming Recognition** - Real-time audio processing
+- **Automatic Punctuation** - Proper sentence formatting
+- **Word Time Offsets** - Precise timing information
+- **Multiple Audio Encodings** - LINEAR_PCM, FLAC support
+- **Language Models** - Parakeet 0.6B CTC English model
+- **Speech Contexts** - Domain-specific vocabulary boosting
+
+### Configuration Options
+```python
+# Example RecognitionConfig
+{
+    "encoding": "FLAC",                    # Audio encoding
+    "sample_rate_hertz": 16000,           # Audio sample rate
+    "language_code": "en-US",             # Language
+    "max_alternatives": 3,                # Recognition hypotheses
+    "enable_automatic_punctuation": True, # Sentence formatting
+    "profanity_filter": False,            # Content filtering
+    "verbatim_transcripts": False,        # Text normalization
+    "speech_contexts": [                  # Vocabulary boosting
+        {"phrases": ["technical terms"], "boost": 10.0}
+    ]
+}
+```
+
+## 🏗️ Architecture
+
+### Modular Design
+```
+riva_dictation/
+├── app.py              # Main application logic
+├── config.py           # Configuration management
+├── cli.py              # Command-line interface
+├── gui/
+│   ├── widgets.py      # GUI components
+│   └── indicators.py   # Visual indicators
+└── __main__.py         # Entry point
+```
+
+### Key Components
+- **ModernDictationApp** - Core application class
+- **Config** - Persistent configuration management
+- **StatusWidget** - Floating GUI status display
+- **CursorIndicator** - Visual recording indicator
+- **CLI Interface** - Command-line argument processing
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests for new functionality
+5. Submit a pull request
+
+### Development Setup
+```bash
+# Install development dependencies
 pip install -r requirements.txt
+pip install pytest
+
+# Run tests
+pytest
+
+# Run with development settings
+python -m riva_dictation --no-gui
 ```
 
-### 3. Choose your version
+## 📄 License
 
-**Modern Version (Recommended):**
-```bash
-python modern_dictation.py
-```
+MIT License - see [LICENSE](LICENSE) file for details.
 
-**Original Version:**
-```bash
-python realtime_dictation.py
-```
+## 🙏 Acknowledgments
 
-## Usage
+- **[NVIDIA Riva](https://developer.nvidia.com/riva)** - Enterprise speech AI platform
+- **[NVIDIA NIM](https://build.nvidia.com/)** - Inference microservices platform
+- **[Parakeet CTC ASR](https://build.nvidia.com/nvidia/parakeet-ctc-0_6b-asr)** - State-of-the-art ASR model
+- **[NVIDIA Riva Python Client](https://github.com/nvidia-riva/python-clients)** - Official Python SDK
 
-1. **Start Riva NIM** container (see installation above)
-2. **Run the dictation app** (modern or original version)
-3. **Check "Auto-type to cursor"** (enabled by default)
-4. **Click in any text field** (Notepad, browser, etc.)
-5. **Press F9** to start real-time dictation
-6. **Speak clearly** - words appear at your cursor!
-7. **Press F9** to stop
+## 📞 Support
 
-### Hotkeys
-- **F9**: Start/Stop dictation
-- **ESC**: Exit app (modern version: only when widget visible)
+- **Documentation**: [NVIDIA Riva ASR NIM Docs](https://docs.nvidia.com/nim/riva/asr/latest/index.html)
+- **Issues**: GitHub Issues for bug reports and feature requests
+- **Community**: NVIDIA Developer Forums for general discussion
 
-## Troubleshooting
+---
 
-### Riva Connection Issues
-```bash
-# Test if Riva is running
-curl http://localhost:9000/v1/health/ready
-```
-
-### Microphone Issues
-- Check microphone permissions in Windows
-- Use the "Test Microphone" button in the app
-- Ensure your microphone is set as default input device
-
-### Dependency Issues
-```bash
-# Test all dependencies (modern version)
-python test_modern_app.py
-```
-
-### Modern App Specific
-- **Can't see system tray icon?** Check your system tray settings
-- **Widget won't show?** Right-click tray icon → "Show Widget"
-- **Auto-reconnection not working?** Check Riva container status
-
-## Technical Details
-
-- Uses NVIDIA Riva's streaming ASR API for real-time transcription
-- Requires `max_alternatives=3` in RecognitionConfig for proper results
-- Streams audio in 16kHz mono PCM format
-- Real-time typing uses interim and final results from Riva
-- Modern version includes automatic error recovery and persistent config
-
-## Resources
-
-- **[NVIDIA Riva Python Clients](https://github.com/nvidia-riva/python-clients)** - Official Python client library for NVIDIA Riva
-- **[Parakeet CTC ASR Model](https://build.nvidia.com/nvidia/parakeet-ctc-0_6b-asr)** - The ASR model used in this project
-- **[NVIDIA Riva ASR NIM Documentation](https://docs.nvidia.com/nim/riva/asr/latest/index.html)** - Complete documentation for Riva ASR NIM
-
-## License
-
-MIT License - see LICENSE file
-
-## Acknowledgments
-
-- Built with [NVIDIA Riva](https://developer.nvidia.com/riva) speech AI platform
-- Uses the [nvidia-riva-client](https://github.com/nvidia-riva/python-clients) Python library
-- Powered by [NVIDIA Parakeet CTC ASR model](https://build.nvidia.com/nvidia/parakeet-ctc-0_6b-asr)
+**Built with ❤️ using NVIDIA Riva - Professional speech AI for real-world applications**

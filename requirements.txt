@@ -6,6 +6,7 @@ numpy
 pystray
 pillow
 infi.systray
+requests
 
 # Phase 3: Modern UI Framework
 customtkinter>=5.2.0

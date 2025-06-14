@@ -127,6 +127,8 @@ venv/
 ENV/
 env.bak/
 venv.bak/
++.testenv/
+-.testenv/
 
 # Spyder project settings
 .spyderproject
@@ -302,3 +304,5 @@ dist/
 
 # Wheel files
 *.whl
+
+.testenv/
