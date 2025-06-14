@@ -192,65 +192,6 @@ class ModernDictationApp:
 
                 print(f"🔗 Connecting to: {server} {'(SSL)' if use_ssl else ''}")
 
-                # Health check (skip for cloud endpoints that don't have standard health endpoints)
-                try:
-                    import grpc
-                    # Try to import health check protos (may not be available in all Riva versions)
-                    try:
-                        from riva.client.proto.grpc_health_v1_pb2 import HealthCheckRequest
-                        from riva.client.proto.grpc_health_v1_pb2_grpc import HealthStub
-                    except ImportError:
-                        # Fallback if health protos not available
-                        raise ImportError("Health check protos not available")
-
-                    # Create gRPC channel for health check
-                    if use_ssl:
-                        credentials = grpc.ssl_channel_credentials()
-                        channel = grpc.secure_channel(server, credentials)
-                    else:
-                        channel = grpc.insecure_channel(server)
-
-                    health_stub = HealthStub(channel)
-                    health_request = HealthCheckRequest(service="nvidia.riva.asr.RivaSpeechRecognition")
-                    health_response = health_stub.Check(health_request, timeout=5)
-
-                    if health_response.status == 1:  # SERVING
-                        print(f"✅ Health check passed")
-                    else:
-                        print(f"⚠️ Health check warning - status: {health_response.status}")
-
-                    channel.close()
-                except Exception as e:
-                    print(f"⚠️ gRPC Health check failed: {e}")
-                    # Fallback to HTTP health check for local servers
-                    try:
-                        # Determine health check endpoint
-                        if endpoint_type == "custom" and self.config.get("use_separate_health_port", False):
-                            # Use separate health port for custom endpoints
-                            custom_health_port = self.config.get("custom_health_port", 8000)
-                            if custom_endpoint:
-                                if ':' in custom_endpoint:
-                                    host = custom_endpoint.split(':')[0]
-                                else:
-                                    host = custom_endpoint
-                            else:
-                                host = "localhost"
-                            health_url = f"http://{host}:{custom_health_port}/health"
-                        elif ':' in server:
-                            host = server.split(':')[0]
-                            health_url = f"http{'s' if use_ssl else ''}://{host}:9000/v1/health/ready"
-                        else:
-                            health_url = f"http{'s' if use_ssl else ''}://{server}:9000/v1/health/ready"
-
-                        resp = requests.get(health_url, timeout=5)
-                        if resp.status_code == 200:
-                            print(f"✅ HTTP Health check passed")
-                        else:
-                            print(f"⚠️ HTTP Health check status: {resp.status_code}")
-                    except Exception as e2:
-                        print(f"⚠️ HTTP Health check failed: {e2}")
-                    # Continue anyway - health check is optional
-
                 # Create Riva client using Auth
                 auth = riva.client.Auth(uri=server, use_ssl=use_ssl)
                 self.riva_client = riva.client.ASRService(auth)
