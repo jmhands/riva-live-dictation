@@ -32,6 +32,10 @@ class Config:
         "custom_health_port": 8000,  # Custom health check port (if different from ASR)
         "use_separate_health_port": False,  # Enable separate health check port
         "connection_timeout": 30,  # Connection timeout in seconds
+        "grpc_options": {},  # Additional gRPC channel options
+        "auto_retry_ssl": True,  # Automatically try SSL if initial connection fails
+        "connection_protocol": "grpc",  # "grpc", "grpc-web" (for HTTP proxies)
+        "validate_streaming": True,  # Validate streaming capability during connection
         # ASR QUALITY SETTINGS
         "audio_encoding": "LINEAR_PCM",  # "LINEAR_PCM", "FLAC" (FLAC recommended for bandwidth)
         "max_alternatives": 1,  # Number of recognition hypotheses (1-5)
