@@ -248,36 +248,51 @@ CMD ["python", "-m", "riva_dictation", "--no-gui", "--endpoint", "riva-server"]
 ## 🔧 Troubleshooting
 
 ### Connection Issues
-```bash
-# Test Riva server connectivity
-curl http://your-server:9000/v1/health/ready
 
-# Debug connection with verbose output
-python -m riva_dictation --no-gui --endpoint your-server
+If you encounter connection errors like "http1.x server" or "StatusCode.UNAVAILABLE", use the built-in diagnostics:
+
+```bash
+python -m riva_dictation --diagnose
 ```
 
-### Audio Issues
-```bash
-# List available microphones
-python -m riva_dictation --list-mics
+This will test:
+- Network connectivity to the server
+- Whether the server responds to HTTP (indicating it's not a gRPC server)
+- gRPC connection attempts with and without SSL
 
-# Test specific microphone
-python -m riva_dictation --no-gui --mic-device 1
-```
+### Common Issues and Solutions
 
-### Port Configuration
-```bash
-# Test different port combinations
-python -m riva_dictation --no-gui \
-  --endpoint your-server \
-  --asr-port 50051    # Try standard port first
-```
+#### "Trying to connect an http1.x server (HTTP status 400)"
+This error means the server is responding with HTTP instead of gRPC protocol.
 
-### Common Solutions
-- **Health check 404 errors**: Normal for some Riva deployments, doesn't affect ASR
-- **SSL certificate issues**: Use `--ssl` flag for HTTPS endpoints
-- **Microphone permissions**: Grant audio access in system settings
-- **Port conflicts**: Check if ports are available and not blocked by firewall
+**Solutions:**
+1. Verify you're connecting to the correct port for the Riva ASR service
+2. Check if SSL is required: `python -m riva_dictation --endpoint your-server --ssl`
+3. Confirm the server is actually running Riva ASR service, not a web server
+4. Contact your server administrator for the correct gRPC endpoint
+
+#### "StatusCode.UNAVAILABLE"
+This indicates the server is not reachable or not running.
+
+**Solutions:**
+1. Check if the server is running
+2. Verify the server address and port are correct
+3. Test network connectivity
+4. Check firewall settings
+
+#### "Health check protos not available"
+This is a warning that can be safely ignored. The application will continue without health checks.
+
+### Configuration
+
+The application stores configuration in `~/.riva_dictation_config.json`. You can edit this file directly or use the GUI settings dialog.
+
+Key configuration options:
+- `endpoint_type`: "local" or "custom"
+- `custom_endpoint`: Your server hostname/IP
+- `custom_asr_port`: gRPC port for ASR service (default: 50051)
+- `use_ssl`: Enable SSL/TLS encryption
+- `auto_retry_ssl`: Automatically try SSL if initial connection fails
 
 ## 📚 API Documentation
 

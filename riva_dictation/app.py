@@ -192,68 +192,129 @@ class ModernDictationApp:
 
                 print(f"🔗 Connecting to: {server} {'(SSL)' if use_ssl else ''}")
 
-                # Health check (skip for cloud endpoints that don't have standard health endpoints)
+                # Create Riva client using Auth with timeout
+                connection_timeout = self.config.get("connection_timeout", 30)
+
                 try:
-                    import grpc
-                    # Try to import health check protos (may not be available in all Riva versions)
-                    try:
-                        from riva.client.proto.grpc_health_v1_pb2 import HealthCheckRequest
-                        from riva.client.proto.grpc_health_v1_pb2_grpc import HealthStub
-                    except ImportError:
-                        # Fallback if health protos not available
-                        raise ImportError("Health check protos not available")
+                    auth = riva.client.Auth(uri=server, use_ssl=use_ssl)
+                    self.riva_client = riva.client.ASRService(auth)
 
-                    # Create gRPC channel for health check
-                    if use_ssl:
-                        credentials = grpc.ssl_channel_credentials()
-                        channel = grpc.secure_channel(server, credentials)
-                    else:
-                        channel = grpc.insecure_channel(server)
+                    # Test the connection by trying to create a simple config
+                    # This will fail early if the connection is not working
+                    test_config = RecognitionConfig(
+                        encoding=riva_audio_pb2.AudioEncoding.LINEAR_PCM,
+                        sample_rate_hertz=self.rate,
+                        language_code=self.config.get("language_code"),
+                        max_alternatives=1
+                    )
 
-                    health_stub = HealthStub(channel)
-                    health_request = HealthCheckRequest(service="nvidia.riva.asr.RivaSpeechRecognition")
-                    health_response = health_stub.Check(health_request, timeout=5)
+                    # Try to validate the connection more thoroughly (if enabled)
+                    if self.config.get("validate_streaming", True):
+                        try:
+                            # Check if streaming methods are available
+                            if not (hasattr(self.riva_client, 'streaming_response_generator') or
+                                    hasattr(self.riva_client, 'StreamingRecognize')):
+                                print("⚠️ Warning: No streaming methods found on client")
+                                print("   Available methods:", [m for m in dir(self.riva_client) if not m.startswith('_')])
 
-                    if health_response.status == 1:  # SERVING
-                        print(f"✅ Health check passed")
-                    else:
-                        print(f"⚠️ Health check warning - status: {health_response.status}")
+                            # Try a minimal streaming test to validate the connection
+                            streaming_config = riva_asr_pb2.StreamingRecognitionConfig(
+                                config=test_config,
+                                interim_results=False
+                            )
 
-                    channel.close()
-                except Exception as e:
-                    print(f"⚠️ gRPC Health check failed: {e}")
-                    # Fallback to HTTP health check for local servers
-                    try:
-                        # Determine health check endpoint
-                        if endpoint_type == "custom" and self.config.get("use_separate_health_port", False):
-                            # Use separate health port for custom endpoints
-                            custom_health_port = self.config.get("custom_health_port", 8000)
-                            if custom_endpoint:
-                                if ':' in custom_endpoint:
-                                    host = custom_endpoint.split(':')[0]
-                                else:
-                                    host = custom_endpoint
+                            # Create a minimal test request
+                            if hasattr(self.riva_client, 'StreamingRecognize'):
+                                def test_request_generator():
+                                    yield riva_asr_pb2.StreamingRecognizeRequest(streaming_config=streaming_config)
+                                    # Send minimal audio data
+                                    yield riva_asr_pb2.StreamingRecognizeRequest(audio_content=b'\x00' * 32)
+
+                                # Try to create the stream (don't consume it, just test creation)
+                                test_stream = self.riva_client.StreamingRecognize(test_request_generator())
+                                # Try to get the first response to validate the connection
+                                try:
+                                    next(test_stream)
+                                    print("✅ Streaming connection validated")
+                                except StopIteration:
+                                    print("✅ Streaming connection validated (empty response)")
+                                except Exception as stream_test_error:
+                                    if "http1.x server" in str(stream_test_error).lower():
+                                        print("❌ Streaming validation failed: Server responds with HTTP")
+                                        raise Exception("Server is not a gRPC service - it responds with HTTP instead of gRPC")
+                                    else:
+                                        print(f"⚠️ Streaming validation warning: {stream_test_error}")
+                                        # Continue anyway, might work during actual streaming
+
+                        except Exception as validation_error:
+                            if "http1.x server" in str(validation_error).lower():
+                                raise validation_error  # Re-raise HTTP server errors
                             else:
-                                host = "localhost"
-                            health_url = f"http://{host}:{custom_health_port}/health"
-                        elif ':' in server:
-                            host = server.split(':')[0]
-                            health_url = f"http{'s' if use_ssl else ''}://{host}:9000/v1/health/ready"
-                        else:
-                            health_url = f"http{'s' if use_ssl else ''}://{server}:9000/v1/health/ready"
+                                print(f"⚠️ Connection validation warning: {validation_error}")
+                                # Continue anyway for other validation errors
 
-                        resp = requests.get(health_url, timeout=5)
-                        if resp.status_code == 200:
-                            print(f"✅ HTTP Health check passed")
-                        else:
-                            print(f"⚠️ HTTP Health check status: {resp.status_code}")
-                    except Exception as e2:
-                        print(f"⚠️ HTTP Health check failed: {e2}")
-                    # Continue anyway - health check is optional
+                    print("✅ Successfully connected to Riva server")
 
-                # Create Riva client using Auth
-                auth = riva.client.Auth(uri=server, use_ssl=use_ssl)
-                self.riva_client = riva.client.ASRService(auth)
+                except Exception as conn_error:
+                    error_msg = str(conn_error)
+
+                    # Provide specific guidance based on error type
+                    if "http1.x server" in error_msg.lower():
+                        print("❌ Connection failed: Server is responding with HTTP instead of gRPC")
+                        print("💡 Possible solutions:")
+                        print("   1. Check if the port is correct for gRPC service")
+                        print("   2. Verify the server supports gRPC protocol")
+                        print("   3. Check if SSL is required (try enabling 'use_ssl' in settings)")
+                        print("   4. Ensure the server is a Riva ASR service, not a web server")
+
+                        # Try with SSL if not already enabled and auto_retry_ssl is enabled
+                        if not use_ssl and self.config.get("auto_retry_ssl", True):
+                            print("🔄 Attempting connection with SSL...")
+                            try:
+                                auth_ssl = riva.client.Auth(uri=server, use_ssl=True)
+                                self.riva_client = riva.client.ASRService(auth_ssl)
+                                print("✅ SSL connection successful!")
+                                # Update config to remember this works
+                                self.config.set("use_ssl", True)
+                                use_ssl = True
+                            except Exception as ssl_error:
+                                print(f"❌ SSL connection also failed: {ssl_error}")
+                                print("💡 Additional troubleshooting:")
+                                print("   - The server may not be a gRPC service")
+                                print("   - Check if this is a REST API endpoint instead")
+                                print("   - Verify the correct port for Riva ASR service")
+                                raise conn_error
+                        else:
+                            print("💡 Additional troubleshooting:")
+                            print("   - The server may not be a gRPC service")
+                            print("   - Check if this is a REST API endpoint instead")
+                            print("   - Verify the correct port for Riva ASR service")
+                            print("   - Try enabling auto_retry_ssl in config")
+                            raise conn_error
+
+                    elif "unavailable" in error_msg.lower():
+                        print("❌ Connection failed: Server unavailable")
+                        print("💡 Possible solutions:")
+                        print("   1. Check if the server is running")
+                        print("   2. Verify the server address and port")
+                        print("   3. Check network connectivity")
+                        print("   4. Ensure firewall allows the connection")
+                        raise conn_error
+
+                    elif "permission denied" in error_msg.lower() or "authentication" in error_msg.lower():
+                        print("❌ Connection failed: Authentication error")
+                        print("💡 Possible solutions:")
+                        print("   1. Check if authentication credentials are required")
+                        print("   2. Verify SSL settings")
+                        print("   3. Check if the server requires specific authentication")
+                        raise conn_error
+
+                    else:
+                        print(f"❌ Connection failed: {error_msg}")
+                        # Run diagnostic if connection fails
+                        print("\n🔍 Running connection diagnostics...")
+                        self.diagnose_connection(server, test_ssl=not use_ssl)
+                        raise conn_error
 
                 # Create recognition config with enhanced settings
                 encoding_map = {
@@ -449,6 +510,13 @@ class ModernDictationApp:
         try:
             print("🎤 Starting recognition...")
 
+            # Validate client connection before streaming
+            if not self.riva_client:
+                print("❌ No Riva client available")
+                self.safe_update_status("Error", "No Riva client")
+                self.stop_recording()
+                return
+
             # Create streaming config using the same recognition config
             streaming_config = riva_asr_pb2.StreamingRecognitionConfig(
                 config=self.recognition_config,
@@ -531,11 +599,61 @@ class ModernDictationApp:
                     print("❌ No responses received")
 
             except Exception as stream_error:
+                error_msg = str(stream_error)
                 print(f"❌ Streaming error: {stream_error}")
+
+                # Handle specific streaming errors
+                if "http1.x server" in error_msg.lower():
+                    print("💡 TCP Port Forwarding Analysis:")
+                    print("   ✅ Initial connection succeeded")
+                    print("   ❌ Streaming connection failed (HTTP instead of gRPC)")
+                    print("\n💡 This indicates TCP port forwarding to an HTTP service:")
+                    print("   1. The port forwards TCP connections successfully")
+                    print("   2. But the destination service responds with HTTP, not gRPC")
+                    print("   3. The forwarded destination is likely a web server, not Riva ASR")
+                    print("\n🔧 Recommended actions for TCP Port Forwarding:")
+                    print("   1. Contact your network administrator")
+                    print("   2. Verify the forwarded destination is running Riva ASR on the correct port")
+                    print("   3. Ask for the direct IP/port of the actual Riva server")
+                    print("   4. Ensure the destination port supports gRPC (usually 50051)")
+                    print("   5. Check if a gRPC-aware load balancer is needed")
+                    print("   6. Run diagnostics: python -m riva_dictation --diagnose")
+
+                    # Try to reconnect with different settings
+                    print("🔄 Attempting to reconnect...")
+                    self.setup_riva()
+
+                elif "unavailable" in error_msg.lower():
+                    print("💡 Server became unavailable during streaming")
+                    print("   The connection may have been lost or the forwarded service stopped")
+
+                    # Try to reconnect
+                    print("🔄 Attempting to reconnect...")
+                    self.setup_riva()
+
                 raise stream_error
 
         except Exception as e:
+            error_msg = str(e)
             print(f"❌ Recognition error: {e}")
+
+            # Provide specific guidance for streaming errors
+            if "http1.x server" in error_msg.lower():
+                print("\n🔍 TCP Port Forwarding Analysis:")
+                print("   ✅ Initial connection succeeded")
+                print("   ❌ Streaming connection failed (HTTP instead of gRPC)")
+                print("\n💡 This indicates TCP port forwarding to an HTTP service:")
+                print("   1. The port forwards TCP connections successfully")
+                print("   2. But the destination service responds with HTTP, not gRPC")
+                print("   3. The forwarded destination is likely a web server, not Riva ASR")
+                print("\n🔧 Recommended actions for TCP Port Forwarding:")
+                print("   1. Contact your network administrator")
+                print("   2. Verify the forwarded destination is running Riva ASR on the correct port")
+                print("   3. Ask for the direct IP/port of the actual Riva server")
+                print("   4. Ensure the destination port supports gRPC (usually 50051)")
+                print("   5. Check if a gRPC-aware load balancer is needed")
+                print("   6. Run diagnostics: python -m riva_dictation --diagnose")
+
             self.safe_update_status("Error", f"Recognition error: {str(e)}")
             self.stop_recording()
 
@@ -845,3 +963,185 @@ class ModernDictationApp:
     def signal_handler(sig, frame):
         """Handle system signals"""
         sys.exit(0)
+
+    def diagnose_connection(self, server, test_ssl=True):
+        """Diagnose connection issues with detailed testing"""
+        print(f"🔍 Diagnosing connection to: {server}")
+
+        # Test 1: Basic network connectivity
+        try:
+            import socket
+            host, port = server.split(':')
+            port = int(port)
+
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(5)
+            result = sock.connect_ex((host, port))
+            sock.close()
+
+            if result == 0:
+                print("✅ Network connectivity: Port is reachable")
+            else:
+                print("❌ Network connectivity: Port is not reachable")
+                return False
+        except Exception as e:
+            print(f"❌ Network test failed: {e}")
+            return False
+
+        # Test 2: Check what type of service is running
+        try:
+            import requests
+            response = requests.get(f"http://{server}", timeout=5)
+            print(f"🔀 TCP port responds to HTTP: {response.status_code}")
+            print("💡 This suggests:")
+            print("   - TCP port forwarding to an HTTP service")
+            print("   - Load balancer not configured for gRPC")
+            print("   - Proxy server intercepting connections")
+            print("   - The forwarded destination may not be a gRPC service")
+
+            # Check response headers for clues
+            server_header = response.headers.get('server', '').lower()
+            if 'nginx' in server_header or 'apache' in server_header:
+                print(f"   - Detected web server: {server_header}")
+                print("   - This port is likely forwarded to a web server, not Riva")
+            elif 'riva' in server_header:
+                print(f"   - Detected Riva in headers: {server_header}")
+                print("   - This might be a Riva HTTP gateway")
+
+        except requests.exceptions.ConnectionError:
+            print("✅ No HTTP response: Good sign for gRPC services")
+        except Exception as e:
+            print(f"⚠️ HTTP test inconclusive: {e}")
+
+        # Test 3: gRPC connection attempts
+        connection_results = []
+
+        # Test without SSL
+        try:
+            print("🔄 Testing gRPC without SSL...")
+            auth = riva.client.Auth(uri=server, use_ssl=False)
+            client = riva.client.ASRService(auth)
+            print("✅ gRPC without SSL: Client created successfully")
+
+            # Try a simple streaming test to validate actual functionality
+            try:
+                test_config = RecognitionConfig(
+                    encoding=riva_audio_pb2.AudioEncoding.LINEAR_PCM,
+                    sample_rate_hertz=16000,
+                    language_code="en-US",
+                    max_alternatives=1
+                )
+                streaming_config = riva_asr_pb2.StreamingRecognitionConfig(
+                    config=test_config,
+                    interim_results=False
+                )
+
+                def test_audio_generator():
+                    yield b'\x00' * 32  # Send minimal audio data
+
+                # Use the correct streaming method
+                if hasattr(client, 'streaming_response_generator'):
+                    test_stream = client.streaming_response_generator(
+                        test_audio_generator(),
+                        streaming_config
+                    )
+                    next(test_stream)
+                    print("✅ gRPC streaming test: SUCCESS")
+                    connection_results.append(("gRPC without SSL", True))
+                else:
+                    print("⚠️ No streaming_response_generator method found")
+                    connection_results.append(("gRPC without SSL", False, "No streaming method"))
+
+            except Exception as stream_error:
+                if "http1.x server" in str(stream_error).lower():
+                    print("❌ gRPC streaming test: HTTP response received")
+                    print("💡 Analysis: TCP forwarding to HTTP service")
+                    connection_results.append(("gRPC without SSL", False, "TCP forwarded to HTTP"))
+                else:
+                    print(f"⚠️ gRPC streaming test: {stream_error}")
+                    connection_results.append(("gRPC without SSL", False, str(stream_error)))
+
+        except Exception as e:
+            print(f"❌ gRPC without SSL: {e}")
+            connection_results.append(("gRPC without SSL", False, str(e)))
+
+        # Test with SSL if requested
+        if test_ssl:
+            try:
+                print("🔄 Testing gRPC with SSL...")
+                auth = riva.client.Auth(uri=server, use_ssl=True)
+                client = riva.client.ASRService(auth)
+                print("✅ gRPC with SSL: Client created successfully")
+
+                # Try streaming test with SSL
+                try:
+                    test_config = RecognitionConfig(
+                        encoding=riva_audio_pb2.AudioEncoding.LINEAR_PCM,
+                        sample_rate_hertz=16000,
+                        language_code="en-US",
+                        max_alternatives=1
+                    )
+                    streaming_config = riva_asr_pb2.StreamingRecognitionConfig(
+                        config=test_config,
+                        interim_results=False
+                    )
+
+                    def test_audio_generator():
+                        yield b'\x00' * 32  # Send minimal audio data
+
+                    # Use the correct streaming method
+                    if hasattr(client, 'streaming_response_generator'):
+                        test_stream = client.streaming_response_generator(
+                            test_audio_generator(),
+                            streaming_config
+                        )
+                        next(test_stream)
+                        print("✅ gRPC SSL streaming test: SUCCESS")
+                        connection_results.append(("gRPC with SSL", True))
+                    else:
+                        print("⚠️ No streaming_response_generator method found")
+                        connection_results.append(("gRPC with SSL", False, "No streaming method"))
+
+                except Exception as stream_error:
+                    if "http1.x server" in str(stream_error).lower():
+                        print("❌ gRPC SSL streaming test: HTTP response received")
+                        print("💡 Analysis: TCP forwarding to HTTP service (even with SSL)")
+                        connection_results.append(("gRPC with SSL", False, "TCP forwarded to HTTP"))
+                    else:
+                        print(f"⚠️ gRPC SSL streaming test: {stream_error}")
+                        connection_results.append(("gRPC with SSL", False, str(stream_error)))
+
+            except Exception as e:
+                print(f"❌ gRPC with SSL: {e}")
+                connection_results.append(("gRPC with SSL", False, str(e)))
+
+        # Analyze results and provide recommendations
+        successful_methods = [result[0] for result in connection_results if result[1]]
+        tcp_forwarding_detected = any("TCP forwarded to HTTP" in str(result) for result in connection_results)
+
+        if successful_methods:
+            print(f"✅ Successful connection methods: {', '.join(successful_methods)}")
+            return True
+        elif tcp_forwarding_detected:
+            print("❌ TCP Port Forwarding Issue Detected")
+            print("\n🔍 Analysis:")
+            print("   - The port is reachable via TCP")
+            print("   - gRPC client creation succeeds")
+            print("   - But streaming fails with HTTP responses")
+            print("   - This indicates TCP port forwarding to an HTTP service")
+            print("\n💡 Recommendations for TCP Port Forwarding:")
+            print("   1. Verify the forwarded destination is actually running Riva ASR")
+            print("   2. Check if the destination port is correct for gRPC (usually 50051)")
+            print("   3. Ensure the destination server supports gRPC, not just HTTP")
+            print("   4. Contact your network administrator about the port forwarding configuration")
+            print("   5. Ask for the direct IP/port of the actual Riva server")
+            print("   6. Consider using a gRPC-aware load balancer if one is needed")
+            return False
+        else:
+            print("❌ No successful connection methods found")
+            print("\n💡 General Recommendations:")
+            print("1. Verify this is actually a Riva ASR server")
+            print("2. Check if the port number is correct for gRPC service")
+            print("3. Confirm the server supports the Riva ASR protocol")
+            print("4. Contact your server administrator for the correct gRPC endpoint")
+            return False

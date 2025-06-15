@@ -48,8 +48,55 @@ def main() -> None:
         action="store_true",
         help="List available microphone devices and exit",
     )
+    parser.add_argument(
+        "--diagnose",
+        action="store_true",
+        help="Run connection diagnostics and exit",
+    )
 
     args = parser.parse_args()
+
+    # Handle diagnostics
+    if args.diagnose:
+        try:
+            from riva_dictation.app import ModernDictationApp
+            from riva_dictation.config import Config
+
+            config = Config()
+
+            # Apply CLI configuration overrides for diagnostics
+            if args.endpoint:
+                config.set("endpoint_type", "custom")
+                config.set("custom_endpoint", args.endpoint)
+                config.set("custom_asr_port", args.asr_port)
+                config.set("use_ssl", args.ssl)
+                server = f"{args.endpoint}:{args.asr_port}"
+            else:
+                endpoint_type = config.get("endpoint_type")
+                if endpoint_type == "custom":
+                    custom_endpoint = config.get("custom_endpoint")
+                    custom_asr_port = config.get("custom_asr_port", 50051)
+                    if custom_endpoint:
+                        if ':' in custom_endpoint:
+                            server = custom_endpoint
+                        else:
+                            server = f"{custom_endpoint}:{custom_asr_port}"
+                    else:
+                        server = f"localhost:{custom_asr_port}"
+                else:
+                    endpoint = config.get("endpoints", {}).get(endpoint_type, {})
+                    server = endpoint.get("server", "localhost:50051")
+
+            # Create a temporary app instance for diagnostics
+            app = ModernDictationApp(headless=True)
+            app.diagnose_connection(server, test_ssl=True)
+            return
+
+        except Exception as e:
+            print(f"❌ Error running diagnostics: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
 
     # Handle list microphones
     if args.list_mics:
