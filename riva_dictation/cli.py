@@ -53,6 +53,11 @@ def main() -> None:
         action="store_true",
         help="Run connection diagnostics and exit",
     )
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help="Enable local Mac mode using MLX and parakeet-mlx",
+    )
 
     args = parser.parse_args()
 
@@ -155,7 +160,7 @@ def main() -> None:
         config.set("input_device_index", args.mic_device)
         print(f"🎤 Using microphone device: {args.mic_device}")
 
-    app = ModernDictationApp(headless=args.no_gui)
+    app = ModernDictationApp(headless=args.no_gui, local_mode=args.local)
     app.run()
 
 

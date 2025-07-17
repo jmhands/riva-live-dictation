@@ -12,10 +12,9 @@ import pyaudio
 import numpy as np
 import pyautogui
 from typing import Optional
-from infi.systray import SysTrayIcon
-import tkinter as tk
-from tkinter import ttk, messagebox
-import requests
+import pystray
+from pystray import Menu, MenuItem
+from PIL import Image
 
 # Riva client imports
 import riva.client
@@ -24,12 +23,12 @@ import riva.client.proto.riva_asr_pb2 as riva_asr_pb2
 import riva.client.proto.riva_audio_pb2 as riva_audio_pb2
 
 from .config import Config
-from .gui.widgets import StatusWidget, CursorIndicator
 
 class ModernDictationApp:
     """Main application class for Riva Dictation"""
 
-    def __init__(self, headless=False):
+    def __init__(self, headless=False, local_mode=False):
+        self.local_mode = local_mode
         # Configuration
         self.config = Config()
         self.headless = headless
@@ -54,8 +53,14 @@ class ModernDictationApp:
         self.riva_client = None
         self.recognition_config = None
 
+        # MLX model
+        self.model = None
+
         # GUI components (only if not headless)
         if not self.headless:
+            import tkinter as tk
+            from tkinter import ttk, messagebox
+            from .gui.widgets import StatusWidget, CursorIndicator
             # Hidden Tkinter root for dialogs
             self.root = tk.Tk()
             self.root.withdraw()  # Hide the main window
@@ -74,9 +79,12 @@ class ModernDictationApp:
             self.systray = None
             print("🖥️  Running in CLI mode (no GUI)")
 
-        # Setup audio and Riva
+        # Setup audio and transcription backend
         self.setup_audio()
-        self.setup_riva()
+        if self.local_mode:
+            self.setup_mlx()
+        else:
+            self.setup_riva()
 
         # Setup hotkeys
         self.setup_hotkeys()
@@ -86,12 +94,14 @@ class ModernDictationApp:
         if self.headless:
             return
 
-        menu_options = (
-            ("Select Microphone", None, self.select_microphone),
-            ("Settings", None, self.show_settings),
+        icon_image = Image.open("mic.ico")
+        menu = Menu(
+            MenuItem("Toggle Recording", self.toggle_recording),
+            MenuItem("Select Microphone", self.select_microphone),
+            MenuItem("Settings", self.show_settings),
+            MenuItem("Quit", self.quit_app)
         )
-        # Use on_quit parameter to handle the default quit option instead of adding our own
-        self.systray = SysTrayIcon("mic.ico", "Riva Dictation (Press F9 to Record)", menu_options, on_quit=self.quit_app)
+        self.systray = pystray.Icon("riva_dictation", icon_image, "Riva Dictation (Press F9 to Record)", menu)
 
     def select_microphone(self, systray=None):
         """Show microphone selection dialog"""
@@ -158,6 +168,21 @@ class ModernDictationApp:
                 default_device = self.audio.get_device_info_by_index(device_idx)
             else:
                 default_device = self.audio.get_default_input_device_info()
+
+            # Verify it has input channels
+            if default_device.get('maxInputChannels', 0) <= 0:
+                print(f"⚠️ Selected device '{default_device['name']}' has no input channels, finding alternative...")
+                # Find first device with input channels
+                device_count = self.audio.get_device_count()
+                for i in range(device_count):
+                    info = self.audio.get_device_info_by_index(i)
+                    if info.get('maxInputChannels', 0) > 0:
+                        default_device = info
+                        print(f"🔄 Falling back to: {info['name']} (index {i})")
+                        break
+                else:
+                    raise ValueError("No input devices found")
+
             self.input_device_index = default_device['index']
             print(f"🎤 Audio device: {default_device['name']}")
         except Exception as e:
@@ -369,6 +394,15 @@ class ModernDictationApp:
         if not connect():
             self.safe_update_status("Error", "Failed to connect to Riva server")
 
+    def setup_mlx(self):
+        """Setup local MLX model"""
+        from parakeet_mlx import from_pretrained
+        self.model = from_pretrained("mlx-community/parakeet-tdt-0.6b-v2")
+        self.rate = self.model.preprocessor_config.sample_rate
+        # Use 1 second chunks as recommended in the docs
+        self.chunk = self.rate  # 1 second chunks for MLX
+        print(f"🔄 Local MLX mode enabled with sample rate: {self.rate}, chunk size: {self.chunk}")
+
     def safe_update_status(self, status: str, message: str = ""):
         """Thread-safe status update"""
         if self.headless:
@@ -418,7 +452,8 @@ class ModernDictationApp:
 
         self.recording = True
         self.current_text = ""
-        self.last_typed_length = len(self.final_text)
+        self.last_typed_length = 0
+        self.last_typed_transcript = ""
 
         self.safe_update_status("Recording", "Listening...")
         self.safe_update_icon(True)
@@ -432,10 +467,14 @@ class ModernDictationApp:
         self.audio_thread.daemon = True
         self.audio_thread.start()
 
-        # Start Riva streaming thread
-        self.riva_thread = threading.Thread(target=self._stream_to_riva)
-        self.riva_thread.daemon = True
-        self.riva_thread.start()
+        # Start transcription thread
+        if self.local_mode:
+            target = self._transcribe_local
+        else:
+            target = self._stream_to_riva
+        self.transcribe_thread = threading.Thread(target=target)
+        self.transcribe_thread.daemon = True
+        self.transcribe_thread.start()
 
     def stop_recording(self):
         """Stop audio recording and transcription"""
@@ -505,6 +544,81 @@ class ModernDictationApp:
             self.recording = False
             self.safe_update_status("Error", "Audio failed")
 
+    def _transcribe_local(self):
+        """Stream audio to local MLX model"""
+        import numpy as np
+
+        try:
+            print("🎤 Starting local MLX transcription...")
+            # Use proper context size as per official docs
+            with self.model.transcribe_stream(context_size=(256, 256)) as transcriber:
+                auto_type_enabled = self.config.get("auto_type", False)
+                self.last_typed_transcript = ""
+                while self.recording:
+                    try:
+                        data = self.audio_queue.get(timeout=0.1)
+                        # Convert audio data to float32
+                        audio_np = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
+
+                        # Ensure audio data is the right shape and type
+                        if len(audio_np) > 0 and audio_np.ndim == 1 and audio_np.dtype == np.float32:
+                            print(f"Audio chunk shape: {audio_np.shape}, dtype: {audio_np.dtype}, min: {audio_np.min()}, max: {audio_np.max()}")
+                            import mlx.core as mx
+                            audio_mx = mx.array(audio_np)
+                            transcriber.add_audio(audio_mx)
+                        else:
+                            print(f"Skipping invalid audio chunk: shape={audio_np.shape}, dtype={audio_np.dtype}")
+
+                        current_draft = ''
+                        if transcriber.draft_tokens:
+                            current_draft = ''.join(t.text for t in transcriber.draft_tokens)
+                            print(f"📝 Draft: {current_draft}")
+
+                        # Use result.text for full interim
+                        full_interim = transcriber.result.text
+                        if full_interim != self.current_text:
+                            self.current_text = full_interim
+                            print(f"🔄 Interim: '{full_interim}'")
+                            self.safe_update_status("Recording", full_interim)
+
+                        if auto_type_enabled and full_interim != self.last_typed_transcript:
+                            common_len = 0
+                            min_len = min(len(full_interim), len(self.last_typed_transcript))
+                            for i in range(min_len):
+                                if full_interim[i] != self.last_typed_transcript[i]:
+                                    break
+                                common_len = i + 1
+
+                            backspace_count = len(self.last_typed_transcript) - common_len
+                            if backspace_count > 0:
+                                print(f"⌫ Backspacing {backspace_count} characters")
+                                pyautogui.press('backspace', presses=backspace_count, interval=0.005)
+
+                            new_text = full_interim[common_len:]
+                            if new_text:
+                                if self.last_typed_transcript == "":
+                                    new_text = new_text.lstrip()
+                                print(f"⌨️ Typing new text: '{new_text}'")
+                                pyautogui.typewrite(new_text, interval=self.config.get("type_interval", 0.01))
+                                print(f"✅ Typed: '{new_text}'")
+
+                            self.last_typed_transcript = full_interim
+
+                    except queue.Empty:
+                        continue
+                    except Exception as audio_error:
+                        print(f"⚠️ Audio processing error: {audio_error}")
+                        continue
+
+                print("🛑 Finalizing remaining tokens...")
+                # No need to type again, already handled via interim
+
+        except Exception as e:
+            print(f"❌ Local transcription error: {e}")
+            self.safe_update_status("Error", f"Local error: {str(e)}")
+        finally:
+            self.stop_recording()
+
     def _stream_to_riva(self):
         """Stream audio to Riva server"""
         try:
@@ -554,7 +668,7 @@ class ModernDictationApp:
                     responses = self.riva_client.StreamingRecognize(request_generator())
                 else:
                     print("❌ No streaming method found!")
-                    available_methods = [method for method in dir(self.riva_client) if not method.startswith('_')]
+                    available_methods = [method for method in dir(self.riva_client) if not method.startswith('_') and callable(getattr(self.riva_client, method))]
                     print(f"Available methods: {', '.join(available_methods)}")
                     self.safe_update_status("Error", "Streaming not supported")
                     return
@@ -579,7 +693,8 @@ class ModernDictationApp:
                                     self.current_text = ""
                                     print(f"✅ Final: '{transcript.strip()}'")
                                     if self.config.get("auto_type"):
-                                        self._auto_type_new_text()
+                                        # No auto-typing here, it's handled by interim
+                                        pass
                                     self.safe_update_status("Recording", transcript.strip())
                                     last_interim = ""  # Reset interim tracking
                                 else:
@@ -657,23 +772,11 @@ class ModernDictationApp:
             self.safe_update_status("Error", f"Recognition error: {str(e)}")
             self.stop_recording()
 
-    def _auto_type_new_text(self):
-        """Auto-type transcribed text like working version"""
-        try:
-            current_total = len(self.final_text)
-            if current_total > self.last_typed_length:
-                new_text = self.final_text[self.last_typed_length:]
-                if new_text.strip():
-                    # Type only the new text
-                    pyautogui.typewrite(new_text, interval=self.config.get("type_interval", 0.01))
-                    print(f"⌨️ Typed: '{new_text.strip()}'")
-                self.last_typed_length = current_total
-        except Exception as e:
-            print(f"⚠️ Auto-type error: {e}")
-
     def quit_app(self, systray=None):
         """Clean up and quit application"""
         self.stop_recording()
+        if self.systray:
+            self.systray.stop()
         if self.stream:
             self.stream.stop_stream()
             self.stream.close()
@@ -708,15 +811,14 @@ class ModernDictationApp:
             except KeyboardInterrupt:
                 self.quit_app()
         else:
-            # Headless mode - just keep running until interrupted
+            # Headless mode - use input prompt for toggle
             print("🎤 Riva Dictation running in CLI mode")
-            print("📋 Press F9 to start/stop recording")
+            print("📋 Press Enter to toggle recording (press Enter again to stop)")
             print("🛑 Press Ctrl+C to quit")
             try:
-                # Keep the main thread alive
-                import time
                 while True:
-                    time.sleep(1)
+                    input()  # Wait for Enter press
+                    self.toggle_recording()
             except KeyboardInterrupt:
                 print("\n🛑 Shutting down...")
                 self.quit_app()

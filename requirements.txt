@@ -5,9 +5,11 @@ pyautogui
 numpy
 pystray
 pillow
-infi.systray
 requests
 
 # Phase 3: Modern UI Framework
 customtkinter>=5.2.0
 darkdetect>=0.8.0  # Auto dark/light theme detection
+
+# Local MLX mode
+parakeet-mlx
